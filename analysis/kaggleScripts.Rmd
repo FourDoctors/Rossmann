@@ -1,0 +1,6 @@
+#Introduction
+
+The best we have achieved using XGBoost has a CV test error of
+0.116. Not a bad score, its a bit higher than the best scripts we have
+seen on Kaggle. We will copy some of the scripts here to see how much
+they actually improve on our score, and see if we are overdoing something.

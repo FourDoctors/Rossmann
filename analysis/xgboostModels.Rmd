@@ -1,0 +1,83 @@
+`m``{r setup, include=FALSE}
+
+knitr::opts_chunk$set(cache=FALSE)
+knitr::opts_chunk$set(echo=FALSE)
+knitr::opts_chunk$set(include=TRUE)
+knitr::opts_chunk$set(results="asis")
+knitr::opts_chunk$set(fig.width=12)
+knitr::opts_chunk$set(fig.height=14)
+prjpath <- "~/work/learn/competitions/kaggle/rossmann/"
+datapath <- paste(prjpath, "data/", sep="")
+analpath <- paste(prjpath, "analysis/", sep="")
+rcodepath <- paste(analpath, "Rcode/", sep="")
+setwd(analpath)
+
+```
+
+
+```{r loadLibsAndSource, include=FALSE}
+
+reqdpkgs <- c("lattice", "latticeExtra", "reshape2",
+              "plyr",  "lubridate", "xgboost")
+lapply(reqdpkgs, library, character.only=TRUE)
+
+```
+
+
+#Data for XGBoost
+
+XGboost will not tolerate factor or character data, or NAs. We will
+transform these variables,
+
+```{r dataforxgb}
+
+preds <- c("Store", "DayOfWeek", "Open", "Promo", "StateHoliday",
+           "SchoolHoliday", "Year", "Month", "Week", "Mday", "Wday",
+           "StoreType", "Assortment", "IsCompetition", "CompDuration",
+           "Promo2", "Promo2DurationSinceRestart")
+
+training.xgb <- training[, preds] #remove Sales and Customers
+training.xgb <- do.call(cbind, lapply(training.xgb,
+                                      function(xs) {
+                                          if (class(xs) %in% c("factor",
+                                                               "character")) {
+                                              xs <- as.character(xs)
+                                              xs[is.na(xs)] <- "missing"
+                                              xs <- as.integer(as.factor(xs))
+                                              xs
+                                          } else {
+                                              xs[is.na(xs)] <- -99999999999999
+                                              xs[is.infinite(xs)] <- 99999999999999
+                                              xs
+                                          }
+                                      })
+                        )
+
+
+```
+
+
+From the scrolls we have seen a best of 0.116 test error. We should be
+able to improve on this.
+
+##Deviation from mean as outcome
+Given that the out come is log-normal, lets try to use deviation from
+the mean as a outcome.
+
+```{r devout}
+
+training$devmean <- with(training,
+                         log(1 + Sales) - mean(log(1 + Sales), na.rm=TRUE))
+
+```
+
+
+# Independent categories
+
+We should also try independent categories for the categorical variables.
+
+```{r indpcats}
+
+training.xgb <- training[, -c(4,5)]
+training.xgb$StateHoliday <- as.integer(training.xgb$StateHoliday)
+

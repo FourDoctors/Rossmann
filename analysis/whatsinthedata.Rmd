@@ -18,9 +18,8 @@ setwd(analpath)
 ```{r loadLibsAndSource, include=FALSE}
 
 reqdpkgs <- c("lattice", "latticeExtra", "ggplot2", "reshape2",
-              "plyr",  "lubridate", "Hmisc", "corrplot",
-              "rpart", "rpart.plot", "rattle", "RWeka", "rattle",
-              "caret", "gbm", "randomForest")
+              "plyr",  "lubridate", "xgboost",  "corrplot",
+              "caret", "randomForest")
 lapply(reqdpkgs, library, character.only=TRUE)
 
 ```
@@ -31,12 +30,6 @@ lapply(reqdpkgs, library, character.only=TRUE)
 We will briefly analyse the Rossmann dataset to identify any
 pecularities we need to notice while loading the data.
 
-```{r loaddata}
-
-training <- read.csv("../data/train.csv")
-testing <- read.csv("../data/test.csv")
-
-```
 
 From Kaggle we have the following information on the data-set,
 
@@ -57,3 +50,256 @@ Most of the fields are self-explanatory. The following are descriptions for thos
 13. Promo2 - Promo2 is a continuing and consecutive promotion for some stores: 0 = store is not participating, 1 = store is participating
 14. Promo2Since[Year/Week] - describes the year and calendar week when the store started participating in Promo2
 15. PromoInterval - describes the consecutive intervals Promo2 is started, naming the months the promotion is started anew. E.g. "Feb,May,Aug,Nov" means each round starts in February, May, August, November of any given year for that store
+
+The primary data is in the file train.csv, and secondary data in
+store.csv,
+
+```{r loaddata}
+
+training <- read.csv("../data/train.csv")
+testing <- read.csv("../data/test.csv")
+store <- read.csv("../data/store.csv")
+
+```
+
+```{r processdates}
+
+training$Date <- ymd(training$Date)
+training$Year <- year(training$Date)
+training$Month <- month(training$Date)
+training$Week <- week(training$Date)
+training$Mday <- mday(training$Date)
+training$Wday <- wday(training$Date)
+
+preds.dates <- c("Year", "Month", "Week", "Mday", "Wday")
+
+```
+
+#Store data
+
+Other than identifying the store, the dataset training contains
+columns that depend on the day that the row identifies. Further
+details on the stores are specified in the data-set store. For any
+prediction we will need to include the information from store columns
+into the training data. We cannot directly copy the infomration from
+*store*. We will have to interpret the *store* columns before we can
+use them.
+
+##Store Type and Assortmnet
+
+The store type data type and can be included directly,
+
+```{r storetype}
+
+store <- store[order(store$Store),]
+row.names(store) <- store$Store
+training$StoreType <- store$StoreType[training$Store]
+training$Assortment <- store$Assortment[training$Store]
+
+```
+
+
+##Competition
+
+A distance in space, and a time of start of the competition is
+provided. Using the time of the competition's start we can determine
+if there was competition on the day of the sale.
+
+```{r existsCompetition}
+
+store$CompDate <- with(store,
+                       ymd(paste(CompetitionOpenSinceYear,
+                                 CompetitionOpenSinceMonth,
+                                 1, sep="-")))
+training$CompDate <- store$CompDate[training$Store]
+training$IsCompetition <- training$Date > training$CompDate
+
+```
+
+We can also compute the duration the competition has existed, to model
+situations in which the competition pulls away regular customers. In
+reverse the store itself could have come up after the competition was
+already there, and could pull customers away from the competition.
+
+To determine what store to go to a customer should know the existance
+of the stores. If a competition has existed forever, a newly opened
+store should attract more customers over time, as should a newly
+opened competition pull away the store's customers. What is the first
+data of sales for each of the stores?
+
+```{r firstsale}
+
+firstsale <- ddply(training, "Store", summarise, Open = min(Date))
+
+print('The stores have data beginning since one of the following dates')
+print(table(firstsale$Open))
+
+```
+All the Rossmann stores have almost the same first sale date. For our
+models we will assume that these stores started business on
+2013-01-01.
+
+We can count the number of days from the start day of the competition
+to the day of the sale.
+
+```{r compdur}
+
+training$CompDuration <- with(training,
+                              Date - CompDate)/edays(1)
+
+```
+
+##Promotions
+
+There are two kinds of promotions. The variable *Promo* tells us if a
+the store has a promotion on a particular day, and the variables
+associated with *Promo2* tell us about a store's participation in a
+continuing and consecutive promotion, which we can directly include in
+*training*. The second promotion being
+continuous, it cannot be readily expressed as a function of time. All
+we know about the second promotion (Promo2) has to be derived from the
+variables *Promo2SinceWeek*, *Promo2SinceYear*, and
+*PromoInterval*. From the descriptions of these variables we can
+assume that once started from the week and year provided in the data,
+Promo2 is continuous. To reinforce, or to remind the customers of this
+promotion, the store restarts the promotion during the months provided
+in *PromoInterval*. We can use the data in the raw-form as it is, and
+we can also derive a variable for each day which tells us the number of
+days since Promo2 has been restarted.
+
+We can encode variable *PromoInterval* with an integer. The group
+Jan,Apr,Jul,Oct will then be 1, Feb,May,Aug,Nov will be 2, and
+Mar,Jun,Sept,Dec will be 3. We do not have to write much code for
+this, and can use the levels assigned by R. Notice that the empty
+string, for stores not participating in Promo2, has been assigned
+level 1. We will relevel *PromoInterval*, and then convert it to an integer,
+
+```{r promo2dayssincej}
+
+training$Promo2 <- store$Promo2[training$Store]
+
+store$PromoInterval <- as.integer(factor(store$PromoInterval,
+                                         c("", "Jan,Apr,Jul,Oct",
+                                           "Feb,May,Aug,Nov",
+                                           "Mar,Jun,Sep,Dec")
+                                         )
+                                  ) - 1
+
+grp.mon <- rep(c(1,2,3), 4)
+mon.grp <- as.data.frame(do.call(rbind,
+                                 lapply(0:3, function(g) {
+                                     if (g == 0) rep(NA, 4)
+                                     else which(grp.mon == g)
+                                 }))
+                         )
+
+Promo2RestartMonth <- mon.grp[store$PromoInterval + 1, ]
+names(Promo2RestartMonth) <- paste("Promo2RestartMonth", 1:4, sep=".")
+
+Promo2SinceRestart <- foreach(i=1:4, .combine = 'cbind') %do% {
+    prd <- training$Date
+    month(prd) <- Promo2RestartMonth[training$Store, i]
+    day(prd) <- 1
+    prd <- (training$Date - prd)/edays(1)
+    prd[prd < 0] <- NA
+    prd
+}
+
+training$Promo2DurationSinceRestart <- apply(Promo2SinceRestart, 1,
+                                                   function(xs) {
+                                                       min(xs,
+                                                           na.rm=TRUE)
+                                                   })
+
+```
+
+We have variables that tell us if a store is participating in Promo2
+or not. We can check what the value of durations since promo2 restart
+for these stores is (as a check on our procedure).
+
+```{r testpromo2dur}
+
+table(training$Promo2DurationSinceRestart[ training$Promo2 == 0])
+
+```
+
+As we can see, the duration since the restart of *Promo2* is infinite
+for all stores that do not participate in *Promo2*, as should be.
+
+# Exploratory Data Analysis
+Since we know the column names we can engage in some insightful
+explorations into the data. First we plot to see how the Sales scale
+with the number of Customers.
+
+```{r plotSalesCustomers}
+
+sc <- training[, c("Sales", "Customers")]
+sc <- sc[order(sc$Customers),]
+xyplot(log10(Sales) ~ log10(Customers),
+       data=subset(sc, Sales > 0 & Customers > 0))
+
+```
+The data falls along a straight line, whose slope we can figure out
+using linear-regression,
+
+```{r lmsalescustomers}
+
+lm.sc <- lm(log10(Sales) ~ log10(Customers),
+            data=subset(sc, Customers > 0 & Sales > 0))
+summary(lm.sc)
+
+```
+
+Though the fit is not great, sales are sublinear in the number of
+customers! Sales per customer fall with the number of customers!
+
+There are dates in the data, that we extract years, months, weekdays
+etc from
+
+##Distribution
+The distribution is log-normal --- a very clear and excellent
+log-normal (not shown). What about distribution of sales at individual
+stores?
+
+```{r saleDistbnGivenStore}
+
+distbnGivenStore <- function(store, trdata=training) {
+    ys <- trdata$Sales[trdata$Store == store]
+    ys <- ys[ys > 0]
+    histogram(log10(ys))
+}
+
+```
+
+
+
+## Baseline models
+A very simple model would be to use the mean of all sales as the
+predicted outcome. This model will have the standard-deviation of
+the data as error,
+
+```{r meanpred}
+
+training.pos <- subset(training, Open == 1 & Sales > 0)
+meanPred <- mean(log(training.pos$Sales))
+err.mp <- sd(log(training.pos$Sales))
+
+```
+
+A more detailed model will use the means of a given store.
+
+```{r meanpredbystore}
+
+meanPred.store <- ddply(training.pos, .(Store), summarise,
+                        count = length(Sales),
+                        mean = mean(log(Sales)),
+                        var = var(log(Sales)),
+                        sd = sd(log(Sales)))
+
+mvar <- sum(meanPred.store$var*meanPred.stor$count)/sum(meanPred.store$count)
+
+print(paste("Error when the mean for each store is used as a prediction",
+           sqrt(mvar)))
+
+
+```

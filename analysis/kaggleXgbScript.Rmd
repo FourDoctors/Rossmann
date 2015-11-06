@@ -1,0 +1,177 @@
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(cache=FALSE)
+knitr::opts_chunk$set(echo=FALSE)
+knitr::opts_chunk$set(include=TRUE)
+knitr::opts_chunk$set(results="asis")
+knitr::opts_chunk$set(fig.width=12)
+knitr::opts_chunk$set(fig.height=14)
+prjpath <- "~/work/learn/competitions/kaggle/rossmann/"
+datapath <- paste(prjpath, "data/", sep="")
+analpath <- paste(prjpath, "analysis/", sep="")
+rcodepath <- paste(analpath, "Rcode/", sep="")
+setwd(analpath)
+
+```
+
+
+```{r loadLibsAndSource, include=FALSE}
+
+reqdpkgs <- c("lattice", "latticeExtra", "reshape2",
+              "plyr",  "lubridate", "xgboost")
+lapply(reqdpkgs, library, character.only=TRUE)
+
+```
+
+
+#Introduction
+
+We use a script from Kaggle,
+https://www.kaggle.com/cast42/rossmann-store-sales/xgboost-in-python-with-rmspe-v2/files
+The script was in Python, which we translated to R. The script
+obtained a private validation score of 0.11479. Can we tune the
+parameters to obtain a better score?
+
+The script adapts the variables for use by XGBoost, without extracting
+any features such as how long it has been since the start of a
+competition.
+
+The data are read from csvs,
+
+```{r loaddata}
+
+training <- read.csv("../data/train.csv")
+testing <- read.csv("../data/test.csv")
+store <- read.csv("../data/store.csv")
+
+training$Date <- ymd(training$Date)
+testing$Date <- ymd(testing$Date)
+
+```
+
+
+
+Because closed stores will not count towards the final score, we can
+consider only open stores for training,
+
+```{r useonlyopenstores}
+
+training <- subset(training, Open != 0)
+training <- subset(training, Sales > 0)
+
+```
+
+There are 11 NAs in testing's Open variable. We will assume that the
+store was closed on these days. If the store is closed, it cannot make
+any sales, so we will save these rows and predict only those when the
+store was open.
+```{r testclosed}
+
+testing$Open[is.na(testing$Open)] <- 1
+testing.closed <- subset(testing, Open == 0)
+testing <- subset(testing, Open == 1)
+
+```
+
+Merge with the data in store,
+
+```{r merge store}
+
+training <- merge(training, store, by="Store")
+testing <- merge(testing, store, by="Store")
+
+```
+
+Now we will build some features that will be used for prediction.
+First, the variables that will be used directly
+
+```{r featuredirect}
+
+preds <- c('Store', 'CompetitionDistance',
+           'CompetitionOpenSinceMonth', 'CompetitionOpenSinceYear',
+           'Promo', 'Promo2',
+           'Promo2SinceWeek', 'Promo2SinceYear')
+
+```
+
+Some processed features,
+
+```{r processedFeatures}
+
+training$SchoolHoliday <- as.numeric(training$SchoolHoliday)
+preds <- c(preds, "SchoolHoliday")
+training$StateHoliday <- as.numeric(training$StateHoliday)
+preds <- c(preds, "StateHoliday")
+training <- cbind(training,
+                  data.frame(
+                      Year = year(training$Date),
+                      Month = month(training$Date),
+                      DayOfWeek = wday(training$Date),
+                      DayOfMonth = mday(training$Date))
+                  )
+preds <- c(preds, "Year", "Month", "DayOfWeek", "DayOfMonth")
+
+storeType.ic <- independentCategories( "StoreType", training)
+training <- cbind(training, storeType.ic)
+preds <- c(preds, names(storeType.ic))
+assortmnent.ic <- independentCategories("Assortment", training)
+training <- cbind(training, assortmnent.ic)
+preds <- c(preds, names(assortmnent.ic))
+
+testing$SchoolHoliday <- as.numeric(testing$SchoolHoliday)
+testing$StateHoliday <- as.numeric(testing$StateHoliday)
+testing <- cbind(testing,
+                  data.frame(
+                      Year = year(testing$Date),
+                      Month = month(testing$Date),
+                      DayOfWeek = wday(testing$Date),
+                      DayOfMonth = mday(testing$Date))
+                  )
+storeType.ic <- independentCategories( "StoreType", testing)
+testing <- cbind(testing, storeType.ic)
+assortmnent.ic <- independentCategories("Assortment", testing)
+testing <- cbind(testing, assortmnent.ic)
+
+
+```
+
+Notice that there are some NAs in testing school holidays that need to
+be taken care of.
+
+For our own testing, we will hold-out some of the training data,
+
+```{r heldout}
+
+training[is.na(training)] <- -1
+training$LogSales <- log(training$Sales)
+
+set.seed(210)
+hoidx <- sample(1:nrow(training), 0.0125*nrow(training))
+training.holdout <- training[hoidx, ]
+training.trn <- training[-hoidx, ]
+
+```
+
+Now we can train,
+
+```{r cv}
+
+source("../Rcode/tuningXGB.r")
+
+training.xgb <- training[,preds]
+training.xgb[is.na(training.xgb)] <- -1
+testing.xgb <- testing[, preds]
+testing.xgb[is.na(testing.xgb)] <- -1
+tunexgb(training.xgb,
+        log(training$Sales),
+        grid=expand.grid(max.depth = c(8, 10, 12),
+                         eta = c(0.1, 0.3, 0.5)),
+        subsample = 0.7,
+        colsample_bytree = 0.7,
+        silent = 1,
+        seed = 1301,
+        nrounds = 200,
+        num.threads = 4,
+        flabel = "kaggleScriptXGB")
+
+```
