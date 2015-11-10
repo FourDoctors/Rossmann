@@ -129,79 +129,23 @@ trts$LogSales <- trts.o
 print("Separate the processed training data from the processed testing data")
 trp <- subset(trts, tr.ts=="tr")
 tsp <- subset(trts, tr.ts=="ts")
-print("Add deviation from log sales as a column to processed training data.")
+print("Add deviation from log sas as a column to processed training data.")
 print("This can be used as an outcome")
 trp$DeviationLogSales <- with(trp, LogSales - mean(LogSales))
 
-## ----heldout----------------
+meanLogSalesByStore <- ddply(trp, .(Store), summarise,
+                             MeanLogSales = mean(LogSales),
+                             SdLogSales = sd(LogSales))
 
-print("For simple validation, hold out a small data-set for internal testing")
-set.seed(210)
-idxho <- sample(1:nrow(trp), 0.0125*nrow(trp))
-trp.ho <- trp[idxho, ]
-trp.tr <- trp[-idxho, ]
-
+trp <- merge(trp, meanLogSalesByStore, by="Store")
+tsp <- merge(tsp, meanLogSalesByStore, by="Store")
+trp$DeviationLogSalesByStore <- with(trp, LogSales - MeanLogSales)
 print("save data to Rdata")
 fn <- "../data/processed/data_xgb_non_time-series"
-save(trp[, preds], file = paste(fn, "training", "Rdata", sep="."))
-save(tsp[, preds], file = paste(fn, "testing", "Rdata", sep="."))
-write.csv(trp[, preds], file = paste(fn, "training", "csv", sep="."))
-write.csv(tsp[, preds], file = paste(fn, "testing", "csv", sep="."))
-##------train---------
-
-source("../Rcode/trainAndPredictXGB.R")
-
-bst <- train.xgb(training = trp.tr,
-                 testing = trp.ho,
-                 preds = preds,
-                 outcome = "DeviationLogSales",
-                 nrounds = 300,
-                 max.depth = 10,
-                 eta = 0.3,
-                 subsample = 0.7,
-                 colsample_bytree = 0.7,
-                 num.threads = 4
-                 )
-
-prho <- exp( mean(trp.tr$LogSales) +
-             predict(bst, data.matrix(trp.ho[, preds])))
-print("held out rms error")
-trp.ho$Sales <- exp(trp.ho$LogSales)
-print( mean(sqrt((prho/trp.ho$Sales - 1)^2)))
-
-prtst <- data.frame(Id = tsp$Id,
-                    Sales = exp(mean(trp.tr$LogSales) +
-                                predict(bst, data.matrix(tsp[, preds]))
-                                )
-                    )
-prtst <- prtst[order(prtst$Id),]
-
-dn <- "../data/predictions/prediction_xgb_non_time-series_models"
-params <- c(nrounds = 300,
-            maxDepth = 10,
-            eta = 0.3)
-outcome = "DeviationLogSales"
-fndf <- data.frame(
-    name = c(names(params), "outcome"),
-    value = as.character(c(params, outcome)),
-    stringsAsFactors = FALSE
-)
-
-fn <- paste(dn,
-            paste(paste(fndf$name, fndf$value, sep="_"),
-                  collapse="."),
-            "csv",
-            sep=".")
-write.csv(prtst, file = fn, row.names=FALSE)
-
-
-
-
-
-
-
-
-
-
-
-
+print("save data, but only the predictors to be used for modeling")
+trpp <- trp[, c("LogSales", "DeviationLogSales", preds)]
+tspp <- tsp[, preds]
+save(trpp, file = paste(fn, "training", "Rdata", sep="."))
+save(tspp, file = paste(fn, "testing", "Rdata", sep="."))
+write.csv(trpp, file = paste(fn, "training", "csv", sep="."))
+write.csv(tspp, file = paste(fn, "testing", "csv", sep="."))

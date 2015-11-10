@@ -32,7 +32,7 @@ tunexgb <- function(
         df.cv$nrounds <- 1:nrounds
         df.cv$max.depth <- md
         df.cv$eta <- eta
-        write.csv(df.cv, file=paste("../data/models/xgbTuning",
+        write.csv(df.cv, file=paste("../data/tunings/xgbTuning",
                                     "max_depth", md, "eta", eta,
                                     flabel,
                                     "csv", sep=".")

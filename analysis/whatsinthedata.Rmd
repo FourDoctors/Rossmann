@@ -261,6 +261,7 @@ The distribution is log-normal --- a very clear and excellent
 log-normal (not shown). What about distribution of sales at individual
 stores?
 
+
 ```{r saleDistbnGivenStore}
 
 distbnGivenStore <- function(store, trdata=training) {
@@ -277,6 +278,7 @@ distbnGivenStore <- function(store, trdata=training) {
 A very simple model would be to use the mean of all sales as the
 predicted outcome. This model will have the standard-deviation of
 the data as error,
+
 
 ```{r meanpred}
 

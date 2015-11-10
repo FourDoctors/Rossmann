@@ -12,52 +12,71 @@ trp.tr <- trp[-idxho, ]
 ##------train---------
 
 source("../Rcode/trainAndPredictXGB.R")
+params <- c(nrounds = 200,
+            maxDepth = 10,
+            subsample = 0.9,
+            colsample_bytree = 0.9,
+            eta = 0.3)
+outcome <- "LogSales"
 
+print("run for params ")
+print(params)
+print(" and outcome")
+print(outcome)
 bst <- train.xgb(training = trp.tr,
                  testing = trp.ho,
                  preds = preds,
-                 outcome = "DeviationLogSales",
-                 nrounds = 300,
-                 max.depth = 10,
-                 eta = 0.3,
-                 subsample = 0.7,
-                 colsample_bytree = 0.7,
+                 outcome = outcome,
+                 nrounds = params["nrounds"],
+                 max.depth = params["maxDepth"],
+                 eta = params["eta"],
+                 subsample = params["subsample"],
+                 colsample_bytree = params["colsample_bytree"],
                  num.threads = 4
                  )
-
-prho <- exp( mean(trp.tr$LogSales) +
-             predict(bst, data.matrix(trp.ho[, preds])))
-print("held out rms error")
-trp.ho$Sales <- exp(trp.ho$LogSales)
-print( mean(sqrt((prho/trp.ho$Sales - 1)^2)))
-
-prtst <- data.frame(Id = tsp$Id,
-                    Sales = exp(mean(trp.tr$LogSales) +
-                                predict(bst, data.matrix(tsp[, preds]))
-                                )
-                    )
-prtst <- prtst[order(prtst$Id),]
-
 dn <- "../data/predictions/prediction_xgb_non_time-series_models"
-params <- c(nrounds = 300,
-            maxDepth = 10,
-            eta = 0.3)
-outcome = "DeviationLogSales"
 fndf <- data.frame(
     name = c(names(params), "outcome"),
     value = as.character(c(params, outcome)),
     stringsAsFactors = FALSE
 )
-
 fn <- paste(dn,
             paste(paste(fndf$name, fndf$value, sep="_"),
                   collapse="."),
             "csv",
             sep=".")
+if (outcome == "DeviationLogSales") {
+    prho <- exp( mean(trp.ho$LogSales) +
+                predict(bst, data.matrix(trp.ho[, preds])))
+    prtst <- data.frame(Id = tsp$Id,
+                        Sales = exp(mean(tsp$LogSales) +
+                                    predict(bst, data.matrix(tsp[, preds])))
+                        )
+}
+
+if (outcome == "DeviationLogSalesByStore") {
+  prho <- exp( trp.ho$MeanLogSales +
+               predict(bst, data.matrix(trp.ho[, preds])))
+  prtst <- data.frame(Id = tsp$Id,
+                      Sales = exp( tsp$MeanLogSales +
+                                   predict(bst, data.matrix(tsp[, preds])))
+                      )
+}
+
+if(outcome == "LogSales") {
+  prho <- exp( predict(bst, data.matrix(trp.ho[, preds])))
+  prtst <- data.frame(Id = tsp$Id,
+                      Sales = exp( predict(bst, data.matrix(tsp[, preds])))
+                      )
+}
+
+  
+
+print("held out rms error")
+trp.ho$Sales <- exp(trp.ho$LogSales)
+print( sqrt(mean((prho/trp.ho$Sales - 1)^2)))
+prtst <- prtst[order(prtst$Id),]
 write.csv(prtst, file = fn, row.names=FALSE)
-
-
-
 
 
 
