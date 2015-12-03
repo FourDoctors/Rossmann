@@ -33,8 +33,8 @@ print("run for params ")
 print(params)
 print(" and outcome")
 print(outcome)
-bst <- train.xgb(training = trp.tr,
-                 testing = trp.ho,
+bst <- train.xgb(datasets = list(training = trp.tr,
+                                 testing = list(m = trp.mho, r = trp.rho)),
                  preds = preds,
                  outcome = outcome,
                  nrounds = params["nrounds"],
@@ -91,10 +91,10 @@ trp.ho$Sales <- exp(trp.ho$LogSales)
 print( sqrt(mean((prho/trp.ho$Sales - 1)^2)))
 print("random held out")
 trp.rho$Sales <- exp(trp.rho$LogSales)
-print( sqrt(mean((prho/trp.rho$Sales - 1)^2)))
+print( sqrt(mean((prho.r/trp.rho$Sales - 1)^2)))
 print("2 months held out")
 trp.mho$Sales <- exp(trp.mho$LogSales)
-print( sqrt(mean((prho/trp.mho$Sales - 1)^2)))
+print( sqrt(mean((prho.m/trp.mho$Sales - 1)^2)))
 prtst <- prtst[order(prtst$Id),]
 write.csv(prtst, file = fn, row.names=FALSE)
 
