@@ -1,0 +1,13 @@
+* Introduction
+
+
+We have made models for raw features, and simple extracted features ( simple manipulations, such as the number of days that have passed since a competition started ). Raw features gave a minimum of 0.11 on the LB test data, and simple extracted features have done no better. Here we will think about features that may have an influence on the sales, and develop approaches to extract them. We suspect that most of the features studied will involde time-series analysis.
+To start with, we will copy ideas from a post on Kaggle. 
+
+** Kaggle ideas
+People have exchanged ideas at Kaggle, that we will now read and note the better ones. 
+*** Simple time series summary statistics. 
+We have already use the mean, and sd of the sales, both for all the stores together, and by store. Mean and SD of each store allowed us to drop the Store index as a predictlm 
+
+* Labels and values
+There are lots of labels in the data. Store index is a label, dates and date derived quantities are labels, in addition to the obvious labels of assortment and store types. We have seen that replacing Store id by its mean and sd improves the prediction slightly. Could we achieve the same effect by using weekly, monthly, and yearly sales as predictors?
