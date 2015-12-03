@@ -8,14 +8,16 @@ train.xgb <- function(
     eta = 0.3,
     subsample = 0.7,
     colsample_bytree = 0.7,
-    num.threads = 4
+    num.threads = 4,
+    early.stop.round = NULL
     ) {
 
     dtrain <- xgb.DMatrix(data = data.matrix(training[, preds]),
                           label = data.matrix(training[, outcome]))
     dtest <- xgb.DMatrix(data = data.matrix(testing[, preds]),
                          label = data.matrix(testing[, outcome]))
-    watchlist <- list(train = dtrain, test = dtest)
+    #watchlist <- list(train = dtrain, test = dtest)
+    watchlist <- list( test = dtest, train = dtrain)
 
     clf <- xgb.train(data = dtrain,
                      max.depth = max.depth,
@@ -27,7 +29,8 @@ train.xgb <- function(
                      subsample = subsample,
                      colsample_bytree = colsample_bytree,
                      #silent = 1,
-                     eval_metric = "rmse")
+                     eval_metric = "rmse",
+                     early.stop.round = early.stop.round)
 
     prediction.train <- predict(clf, dtrain)
     prediction.test <- predict(clf, dtest)
