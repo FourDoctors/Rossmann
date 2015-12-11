@@ -32,20 +32,26 @@ train.xgb <- function(datasets,
                    early.stop.round = early.stop.round)
   
   prediction.train <- predict(clf, dtrain)
-  prediction.test <- predict(clf, dtest)
-  
+  #prediction.test <- sapply(dtest, function(testing) exp(predict(clf, testing)))
+  #observation.test <- sapply(datasets$testing,
+  #                           function(testing) {
+  #                             exp(testing[, outcome])
+  #                           }))
+ # 
   print("training error")
   x <- exp(training[, outcome])
   y <- exp(prediction.train)
   train.err <- sqrt(mean((y/x - 1)^2))
   print(train.err)
   
-  print("testing error")
-  x <- exp(testing[, outcome])
-  y <- exp(prediction.test)
-  test.err <- sqrt(mean((y/x - 1)^2))
-  print(test.err)
-  
+ # print("testing error")
+ # testingErrors <- sapply(prediction.test, function(testing) {
+ #   x <- exp(testing[, outcome])
+ #   y <- exp(prediction.test)
+ #   sqrt(mean((y/x - 1)^2))
+ # })
+ # print(testingErrors)
+ # 
   clf
 }
 

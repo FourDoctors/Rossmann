@@ -23,11 +23,12 @@ trp.tr <- trp[-idxho, ]
 load.data = FALSE
 if (load.data == TRUE)
     source("../Rcode/simpleFeatures.R")
-params <- c(nrounds = 200,
+params <- c(nrounds = 10000,
             maxDepth = 10,
             subsample = 0.50,
-            colsample_bytree = 0.90,
-            eta = 0.3)
+            colsample_bytree = 0.050,
+            eta = 0.02,
+            early.stop.round=1000)
 
 print("run for params ")
 print(params)
@@ -43,7 +44,7 @@ bst <- train.xgb(datasets = list(training = trp.tr,
                  subsample = params["subsample"],
                  colsample_bytree = params["colsample_bytree"],
                  num.threads = 6,
-                 early.stop.round=10
+                 early.stop.round=params["early.stop.round"]
                  )
 dn <- "../data/predictions/simpleFeatures/prediction_xgb_non_time-series_models"
 fndf <- data.frame(
